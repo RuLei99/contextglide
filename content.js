@@ -1,9 +1,8 @@
 const TOKEN_RE = /[\p{L}\p{N}]+(?:['_-][\p{L}\p{N}]+)*/gu;
 const PROCESSED_ATTR = "data-contextglide-processed";
-const ENABLED_KEY = "contextGlideEnabled";
 const SHORTCUT_KEY = "contextGlideShortcut";
 
-let enabled = true;
+let enabled = false;
 let toggleShortcut = defaultShortcut();
 let segmenter = null;
 
@@ -17,34 +16,38 @@ init();
 
 async function init() {
   const settings = await chrome.storage.sync.get({
-    [ENABLED_KEY]: false,
     [SHORTCUT_KEY]: defaultShortcut()
   });
-  enabled = Boolean(settings[ENABLED_KEY]);
+  enabled = true;
   toggleShortcut = settings[SHORTCUT_KEY] || defaultShortcut();
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && changes[ENABLED_KEY]) {
-      enabled = Boolean(changes[ENABLED_KEY].newValue);
-      document.documentElement.classList.toggle("contextglide-disabled", !enabled);
-      if (enabled) {
-        annotatePage();
-      } else {
-        restorePageText();
-      }
-    }
     if (area === "sync" && changes[SHORTCUT_KEY]) {
       toggleShortcut = changes[SHORTCUT_KEY].newValue || defaultShortcut();
     }
   });
 
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "contextglide-get-state") {
+      sendResponse({ enabled });
+      return;
+    }
+
+    if (message?.type === "contextglide-enable") {
+      setEnabled(true);
+      sendResponse({ enabled });
+      return;
+    }
+
+    if (message?.type === "contextglide-disable") {
+      setEnabled(false);
+      sendResponse({ enabled });
+    }
+  });
+
   document.addEventListener("keydown", handleShortcut, true);
 
-  if (enabled) {
-    annotatePage();
-  }
-
-  document.documentElement.classList.toggle("contextglide-disabled", !enabled);
+  setEnabled(true);
 }
 
 async function handleShortcut(event) {
@@ -54,8 +57,17 @@ async function handleShortcut(event) {
 
   event.preventDefault();
   event.stopPropagation();
-  enabled = !enabled;
-  await chrome.storage.sync.set({ [ENABLED_KEY]: enabled });
+  setEnabled(!enabled);
+}
+
+function setEnabled(value) {
+  enabled = Boolean(value);
+  document.documentElement.classList.toggle("contextglide-disabled", !enabled);
+  if (enabled) {
+    annotatePage();
+  } else {
+    restorePageText();
+  }
 }
 
 function isEditableTarget(target) {

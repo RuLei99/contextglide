@@ -63,11 +63,25 @@ const PROVIDERS = {
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-contextglide") {
-    await toggleContextGlide();
+    await toggleActiveTab();
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "toggle-active-tab") {
+    toggleActiveTab()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "get-active-tab-state") {
+    getActiveTabState()
+      .then((state) => sendResponse({ ok: true, ...state }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "translate-token") {
     translateToken(message.token, message.context)
       .then((translation) => sendResponse({ ok: true, translation }))
@@ -83,13 +97,63 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function toggleContextGlide() {
-  const settings = await chrome.storage.sync.get({
-    contextGlideEnabled: false
+async function toggleActiveTab() {
+  const tab = await getActiveTab();
+  if (!tab?.id || !isInjectableUrl(tab.url)) {
+    throw new Error("ContextGlide can only run on ordinary web pages.");
+  }
+
+  const state = await getTabState(tab.id);
+  if (!state.injected) {
+    await injectContextGlide(tab.id);
+    return { enabled: true, injected: true };
+  }
+
+  const nextEnabled = !state.enabled;
+  await chrome.tabs.sendMessage(tab.id, {
+    type: nextEnabled ? "contextglide-enable" : "contextglide-disable"
   });
-  await chrome.storage.sync.set({
-    contextGlideEnabled: !settings.contextGlideEnabled
+  return { enabled: nextEnabled, injected: true };
+}
+
+async function getActiveTabState() {
+  const tab = await getActiveTab();
+  if (!tab?.id || !isInjectableUrl(tab.url)) {
+    return { enabled: false, injected: false };
+  }
+  return getTabState(tab.id);
+}
+
+async function getActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+async function getTabState(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "contextglide-get-state" });
+    return {
+      enabled: Boolean(response?.enabled),
+      injected: true
+    };
+  } catch (_error) {
+    return { enabled: false, injected: false };
+  }
+}
+
+async function injectContextGlide(tabId) {
+  await chrome.scripting.insertCSS({
+    target: { tabId },
+    files: ["content.css"]
   });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
+  });
+}
+
+function isInjectableUrl(url) {
+  return /^https?:\/\//.test(String(url || ""));
 }
 
 async function translateToken(rawToken, rawContext) {
@@ -128,7 +192,6 @@ async function translateToken(rawToken, rawContext) {
 
 async function getSettings() {
   const settings = await chrome.storage.sync.get({
-    contextGlideEnabled: undefined,
     aiProvider: "deepseek",
     aiApiKey: "",
     aiModel: "",
