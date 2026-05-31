@@ -31,7 +31,7 @@ Our differentiation is not more buttons. It is less interruption:
 - Common providers are preconfigured; users only need to choose a provider, choose a model, and paste a token or API key.
 - Custom providers expose an endpoint field for less common OpenAI-compatible APIs.
 - Native language and target language use selectable suggestions, while still allowing custom text.
-- True default-off behavior: ContextGlide does not inject its content script into a page until the user toggles it on.
+- Quiet default behavior: ContextGlide only shows a tiny right-side floating button until the user turns on Word or Sentence mode.
 - On-demand requests: blank translation slots appear first; API calls happen only after a click.
 - Local cache for the same provider, endpoint, model, target language, token, and context for 30 days.
 - Runs on ordinary `http://*/*` and `https://*/*` pages.
@@ -100,11 +100,19 @@ The model list is configurable. The built-in options are recommendations, not ha
 
 ## Usage
 
-Open any reading page. ContextGlide is off by default and does not inject code into the page. Press the browser shortcut or enable it from the popup when you want inline reading help. After it is enabled, words or short phrases receive a blank line underneath. Click any token, and ContextGlide sends the token plus nearby context to the selected provider, then displays the returned target-language meaning under the original text.
+Open any reading page. ContextGlide is off by default and only shows a tiny floating button on the right side. Click the floating button, popup mode button, or browser shortcut to cycle:
+
+```text
+Off -> Word -> Sentence -> Off
+```
+
+In Word mode, words or short phrases receive a blank line underneath. Click any token, and ContextGlide sends the token plus nearby context to the selected provider, then displays the returned target-language meaning under the original text.
+
+In Sentence mode, you still click a word. ContextGlide finds the nearest sentence containing that word, sends the sentence plus paragraph context to the provider, and shows the translated sentence in the right-side panel.
 
 ## Toggle and Shortcut
 
-ContextGlide is designed to stay out of your way. It is disabled by default on every page, so normal browsing is not modified and the content script is not injected unless you ask for help. Turn it on from the extension popup or press the browser shortcut. When disabled again, ContextGlide restores the page text instead of leaving clickable wrappers behind.
+ContextGlide is designed to stay out of your way. It starts in Off mode on every page. The only default UI is a small floating button. Turn on Word mode or Sentence mode from that button, from the popup, or with the browser shortcut. When returning to Off, ContextGlide restores the page text and closes the sentence panel.
 
 Default shortcut:
 
@@ -119,11 +127,13 @@ You can change the browser-level shortcut in Chrome:
 chrome://extensions/shortcuts
 ```
 
-You can also record a page-level shortcut in ContextGlide settings. Click the shortcut field, press the key combination you want, then save. This is useful after ContextGlide is enabled on a page. Before injection, use the browser-level command configured at `chrome://extensions/shortcuts`.
+You can also record a page-level shortcut in ContextGlide settings. Click the shortcut field, press the key combination you want, then save. This cycles the same modes as the floating button.
 
 ## Prompt Design
 
 ContextGlide does not send an isolated word alone. It captures the nearest paragraph-like container, removes already displayed inline translations, normalizes whitespace, and sends up to about 1,000 characters of nearby context.
+
+Sentence mode uses the clicked word as an anchor. ContextGlide extracts the sentence containing that word with English and CJK punctuation boundaries, then asks the provider for a target-language sentence translation.
 
 System prompt:
 

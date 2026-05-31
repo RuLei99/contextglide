@@ -1,6 +1,6 @@
 const SHORTCUT_KEY = "contextGlideShortcut";
 
-const enabled = document.querySelector("#enabled");
+const modeButton = document.querySelector("#modeButton");
 const openOptions = document.querySelector("#openOptions");
 const status = document.querySelector("#status");
 
@@ -11,25 +11,47 @@ chrome.storage.sync.get({
 });
 
 chrome.runtime.sendMessage({ type: "get-active-tab-state" }, (response) => {
-  enabled.checked = Boolean(response?.enabled);
+  renderMode(response?.mode || "off");
 });
 
-enabled.addEventListener("change", async () => {
+modeButton.addEventListener("click", async () => {
   const response = await chrome.runtime.sendMessage({ type: "toggle-active-tab" });
   if (!response?.ok) {
-    enabled.checked = false;
+    renderMode("off");
     status.textContent = response?.error || "Cannot run on this page.";
     return;
   }
-  enabled.checked = Boolean(response.enabled);
-  status.textContent = response.enabled
-    ? "Enabled on this page."
-    : "Disabled and page text restored.";
+  renderMode(response.mode || "off");
+  status.textContent = modeText(response.mode || "off");
 });
 
 openOptions.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
+
+function renderMode(mode) {
+  modeButton.textContent = `Mode: ${modeLabel(mode)}`;
+}
+
+function modeLabel(mode) {
+  if (mode === "word") {
+    return "Word";
+  }
+  if (mode === "sentence") {
+    return "Sentence";
+  }
+  return "Off";
+}
+
+function modeText(mode) {
+  if (mode === "word") {
+    return "Word mode enabled.";
+  }
+  if (mode === "sentence") {
+    return "Sentence mode enabled.";
+  }
+  return "Disabled and page text restored.";
+}
 
 function defaultShortcut() {
   return navigator.platform?.toLowerCase().includes("mac")

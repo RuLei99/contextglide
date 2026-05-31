@@ -63,13 +63,13 @@ const PROVIDERS = {
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-contextglide") {
-    await toggleActiveTab();
+    await cycleActiveTabMode();
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "toggle-active-tab") {
-    toggleActiveTab()
+    cycleActiveTabMode()
       .then((state) => sendResponse({ ok: true, ...state }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -89,6 +89,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "translate-sentence") {
+    translateSentence(message.sentence, message.context, message.token)
+      .then((translation) => sendResponse({ ok: true, translation }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "translate-word") {
     translateToken(message.word, message.context)
       .then((translation) => sendResponse({ ok: true, translation }))
@@ -97,7 +104,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function toggleActiveTab() {
+async function cycleActiveTabMode() {
   const tab = await getActiveTab();
   if (!tab?.id || !isInjectableUrl(tab.url)) {
     throw new Error("ContextGlide can only run on ordinary web pages.");
@@ -106,14 +113,20 @@ async function toggleActiveTab() {
   const state = await getTabState(tab.id);
   if (!state.injected) {
     await injectContextGlide(tab.id);
-    return { enabled: true, injected: true };
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "contextglide-cycle-mode" });
+    return {
+      mode: response?.mode || "word",
+      enabled: response?.mode !== "off",
+      injected: true
+    };
   }
 
-  const nextEnabled = !state.enabled;
-  await chrome.tabs.sendMessage(tab.id, {
-    type: nextEnabled ? "contextglide-enable" : "contextglide-disable"
-  });
-  return { enabled: nextEnabled, injected: true };
+  const response = await chrome.tabs.sendMessage(tab.id, { type: "contextglide-cycle-mode" });
+  return {
+    mode: response?.mode || "off",
+    enabled: response?.mode !== "off",
+    injected: true
+  };
 }
 
 async function getActiveTabState() {
@@ -133,11 +146,12 @@ async function getTabState(tabId) {
   try {
     const response = await chrome.tabs.sendMessage(tabId, { type: "contextglide-get-state" });
     return {
+      mode: response?.mode || "off",
       enabled: Boolean(response?.enabled),
       injected: true
     };
   } catch (_error) {
-    return { enabled: false, injected: false };
+    return { mode: "off", enabled: false, injected: false };
   }
 }
 
@@ -180,6 +194,42 @@ async function translateToken(rawToken, rawContext) {
   }
 
   const translation = await translateWithProvider(token, context, settings);
+  await chrome.storage.local.set({
+    [cacheKey]: {
+      text: translation,
+      savedAt: Date.now()
+    }
+  });
+
+  return translation;
+}
+
+async function translateSentence(rawSentence, rawContext, rawToken) {
+  const sentence = normalizeContext(rawSentence);
+  const context = normalizeContext(rawContext);
+  const token = normalizeToken(rawToken);
+  if (!sentence) {
+    throw new Error("No sentence selected.");
+  }
+
+  const settings = await getSettings();
+  const cacheHash = await sha256Hex([
+    "sentence",
+    settings.provider,
+    settings.customProviderEndpoint,
+    settings.model,
+    settings.targetLanguage,
+    sentence,
+    context
+  ].join("\n").toLowerCase());
+  const cacheKey = `${CACHE_PREFIX}${cacheHash.slice(0, 32)}`;
+  const cached = await chrome.storage.local.get(cacheKey);
+  const hit = cached[cacheKey];
+  if (hit && Date.now() - hit.savedAt < CACHE_TTL_MS) {
+    return hit.text;
+  }
+
+  const translation = await translateSentenceWithProvider(sentence, context, token, settings);
   await chrome.storage.local.set({
     [cacheKey]: {
       text: translation,
@@ -255,7 +305,37 @@ async function translateWithProvider(token, context, settings) {
   return translateWithOpenAICompatible(token, context, settings, provider);
 }
 
-async function translateWithOpenAICompatible(token, context, settings, provider) {
+async function translateSentenceWithProvider(sentence, context, token, settings) {
+  const provider = settings.providerDef;
+
+  if (provider.type === "google-translate") {
+    return translateWithGoogleTranslate(sentence, settings, provider);
+  }
+
+  if (provider.type === "microsoft-translator") {
+    return translateWithMicrosoftTranslator(sentence, settings, provider);
+  }
+
+  if (provider.type === "youdao") {
+    return translateWithYoudao(sentence, settings);
+  }
+
+  if (!settings.apiKey) {
+    throw new Error("Please set a provider API key in extension options.");
+  }
+
+  if (provider.type === "anthropic") {
+    return translateWithClaude(sentence, buildSentenceContext(sentence, context, token), settings, provider, "sentence");
+  }
+
+  if (provider.type === "gemini") {
+    return translateWithGemini(sentence, buildSentenceContext(sentence, context, token), settings, provider, "sentence");
+  }
+
+  return translateWithOpenAICompatible(sentence, buildSentenceContext(sentence, context, token), settings, provider, "sentence");
+}
+
+async function translateWithOpenAICompatible(token, context, settings, provider, task = "token") {
   if (!provider.endpoint) {
     throw new Error("Please set a custom OpenAI-compatible endpoint in extension options.");
   }
@@ -271,11 +351,11 @@ async function translateWithOpenAICompatible(token, context, settings, provider)
       messages: [
         {
           role: "system",
-          content: buildSystemPrompt(settings)
+          content: task === "sentence" ? buildSentenceSystemPrompt(settings) : buildSystemPrompt(settings)
         },
         {
           role: "user",
-          content: buildUserPrompt(token, context, settings)
+          content: task === "sentence" ? context : buildUserPrompt(token, context, settings)
         }
       ],
       temperature: 0.2,
@@ -304,7 +384,7 @@ function normalizeEndpoint(endpoint) {
   return `${value.replace(/\/$/, "")}/chat/completions`;
 }
 
-async function translateWithClaude(token, context, settings, provider) {
+async function translateWithClaude(token, context, settings, provider, task = "token") {
   const response = await fetch(provider.endpoint, {
     method: "POST",
     headers: {
@@ -316,11 +396,11 @@ async function translateWithClaude(token, context, settings, provider) {
       model: settings.model || provider.defaultModel,
       max_tokens: 80,
       temperature: 0.2,
-      system: buildSystemPrompt(settings),
+      system: task === "sentence" ? buildSentenceSystemPrompt(settings) : buildSystemPrompt(settings),
       messages: [
         {
           role: "user",
-          content: buildUserPrompt(token, context, settings)
+          content: task === "sentence" ? context : buildUserPrompt(token, context, settings)
         }
       ]
     })
@@ -335,7 +415,7 @@ async function translateWithClaude(token, context, settings, provider) {
   return cleanTranslation(text, settings);
 }
 
-async function translateWithGemini(token, context, settings, provider) {
+async function translateWithGemini(token, context, settings, provider, task = "token") {
   const model = encodeURIComponent(settings.model || provider.defaultModel);
   const endpoint = `${provider.endpoint}/${model}:generateContent?key=${encodeURIComponent(settings.apiKey)}`;
   const response = await fetch(endpoint, {
@@ -347,7 +427,11 @@ async function translateWithGemini(token, context, settings, provider) {
       contents: [
         {
           role: "user",
-          parts: [{ text: `${buildSystemPrompt(settings)}\n\n${buildUserPrompt(token, context, settings)}` }]
+          parts: [{
+            text: task === "sentence"
+              ? `${buildSentenceSystemPrompt(settings)}\n\n${context}`
+              : `${buildSystemPrompt(settings)}\n\n${buildUserPrompt(token, context, settings)}`
+          }]
         }
       ],
       generationConfig: {
@@ -498,6 +582,30 @@ function buildSystemPrompt(settings) {
     "Prefer a concise answer suitable for displaying beneath the original text.",
     "If the target is a proper noun, return its common localized name when available; otherwise return 'proper noun' in the target language."
   ].join(" ");
+}
+
+function buildSentenceSystemPrompt(settings) {
+  return [
+    "You are a multilingual contextual sentence translator.",
+    `Translate the selected sentence into ${settings.targetLanguage}.`,
+    "Use the surrounding paragraph only to resolve context.",
+    "Return only the translated sentence.",
+    "Do not explain, do not include pronunciation, and do not add examples."
+  ].join(" ");
+}
+
+function buildSentenceContext(sentence, context, token) {
+  return [
+    `Source language: auto`,
+    `Target language sentence translation`,
+    `Clicked word: ${token || ""}`,
+    "",
+    "Selected sentence:",
+    sentence,
+    "",
+    "Surrounding paragraph:",
+    context || "(No surrounding context was captured.)"
+  ].join("\n");
 }
 
 function buildUserPrompt(token, context, settings) {

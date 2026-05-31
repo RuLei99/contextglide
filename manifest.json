@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ContextGlide",
   "description": "Lightweight contextual AI reading helper for multilingual web pages.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "permissions": [
     "storage",
     "activeTab",
@@ -24,6 +24,21 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_title": "ContextGlide",
     "default_popup": "popup.html"

@@ -1,10 +1,15 @@
 const TOKEN_RE = /[\p{L}\p{N}]+(?:['_-][\p{L}\p{N}]+)*/gu;
 const PROCESSED_ATTR = "data-contextglide-processed";
 const SHORTCUT_KEY = "contextGlideShortcut";
+const MODES = ["off", "word", "sentence"];
 
-let enabled = false;
+let mode = "off";
 let toggleShortcut = defaultShortcut();
 let segmenter = null;
+let floatingButton = null;
+let sentencePanel = null;
+let sentenceSource = null;
+let sentenceResult = null;
 
 try {
   segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
@@ -18,7 +23,6 @@ async function init() {
   const settings = await chrome.storage.sync.get({
     [SHORTCUT_KEY]: defaultShortcut()
   });
-  enabled = true;
   toggleShortcut = settings[SHORTCUT_KEY] || defaultShortcut();
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -29,25 +33,78 @@ async function init() {
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "contextglide-get-state") {
-      sendResponse({ enabled });
+      sendResponse({ mode, enabled: mode !== "off" });
       return;
     }
 
-    if (message?.type === "contextglide-enable") {
-      setEnabled(true);
-      sendResponse({ enabled });
+    if (message?.type === "contextglide-cycle-mode") {
+      setMode(nextMode(mode));
+      sendResponse({ mode, enabled: mode !== "off" });
       return;
     }
 
-    if (message?.type === "contextglide-disable") {
-      setEnabled(false);
-      sendResponse({ enabled });
+    if (message?.type === "contextglide-set-mode") {
+      setMode(MODES.includes(message.mode) ? message.mode : "off");
+      sendResponse({ mode, enabled: mode !== "off" });
     }
   });
 
   document.addEventListener("keydown", handleShortcut, true);
+  createFloatingControl();
+  setMode("off");
+}
 
-  setEnabled(true);
+function createFloatingControl() {
+  if (floatingButton) {
+    return;
+  }
+
+  floatingButton = document.createElement("button");
+  floatingButton.type = "button";
+  floatingButton.className = "contextglide-float contextglide-float-off";
+  floatingButton.textContent = "CG";
+  floatingButton.title = "ContextGlide: Off";
+  floatingButton.setAttribute("aria-label", "Toggle ContextGlide mode");
+  floatingButton.addEventListener("click", () => setMode(nextMode(mode)));
+  document.documentElement.append(floatingButton);
+}
+
+function setMode(next) {
+  mode = next;
+  document.documentElement.dataset.contextglideMode = mode;
+  updateFloatingControl();
+
+  if (mode === "off") {
+    restorePageText();
+    closeSentencePanel();
+    return;
+  }
+
+  restorePageText();
+  annotatePage();
+  if (mode === "word") {
+    closeSentencePanel();
+  }
+}
+
+function nextMode(current) {
+  if (current === "off") {
+    return "word";
+  }
+  if (current === "word") {
+    return "sentence";
+  }
+  return "off";
+}
+
+function updateFloatingControl() {
+  if (!floatingButton) {
+    return;
+  }
+
+  floatingButton.className = `contextglide-float contextglide-float-${mode}`;
+  floatingButton.textContent = mode === "off" ? "CG" : mode === "word" ? "W" : "S";
+  floatingButton.title = `ContextGlide: ${mode}`;
 }
 
 async function handleShortcut(event) {
@@ -57,17 +114,7 @@ async function handleShortcut(event) {
 
   event.preventDefault();
   event.stopPropagation();
-  setEnabled(!enabled);
-}
-
-function setEnabled(value) {
-  enabled = Boolean(value);
-  document.documentElement.classList.toggle("contextglide-disabled", !enabled);
-  if (enabled) {
-    annotatePage();
-  } else {
-    restorePageText();
-  }
+  setMode(nextMode(mode));
 }
 
 function isEditableTarget(target) {
@@ -88,7 +135,7 @@ function annotatePage() {
         }
 
         const parent = node.parentElement;
-        if (!parent || parent.closest("[data-contextglide-token]")) {
+        if (!parent || parent.closest("[data-contextglide-token], .contextglide-float, .contextglide-panel")) {
           return NodeFilter.FILTER_REJECT;
         }
 
@@ -121,7 +168,7 @@ function restorePageText() {
     const fragment = document.createDocumentFragment();
     for (const child of Array.from(wrapper.childNodes)) {
       if (child.nodeType === Node.ELEMENT_NODE && child.matches("[data-contextglide-token]")) {
-        fragment.append(document.createTextNode(child.dataset.contextglideToken || child.textContent || ""));
+        fragment.append(document.createTextNode(child.dataset.contextglideToken || child.querySelector(".contextglide-original")?.textContent || ""));
       } else {
         fragment.append(child);
       }
@@ -214,7 +261,7 @@ function createTokenSpan(token) {
   span.dataset.contextglideToken = token;
   span.tabIndex = 0;
   span.setAttribute("role", "button");
-  span.setAttribute("aria-label", `Translate ${token}`);
+  span.setAttribute("aria-label", `ContextGlide ${token}`);
 
   const original = document.createElement("span");
   original.className = "contextglide-original";
@@ -226,19 +273,30 @@ function createTokenSpan(token) {
   meaning.textContent = "";
 
   span.append(original, meaning);
-  span.addEventListener("click", () => handleTranslate(span));
+  span.addEventListener("click", () => handleTokenClick(span));
   span.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      handleTranslate(span);
+      handleTokenClick(span);
     }
   });
 
   return span;
 }
 
-async function handleTranslate(span) {
-  if (!enabled || span.dataset.loading === "true") {
+async function handleTokenClick(span) {
+  if (mode === "word") {
+    await translateWordToken(span);
+    return;
+  }
+
+  if (mode === "sentence") {
+    await translateContainingSentence(span);
+  }
+}
+
+async function translateWordToken(span) {
+  if (span.dataset.loading === "true") {
     return;
   }
 
@@ -273,12 +331,36 @@ async function handleTranslate(span) {
   }
 }
 
+async function translateContainingSentence(span) {
+  const token = span.dataset.contextglideToken;
+  const context = getTokenContext(span);
+  const sentence = getContainingSentence(context, token);
+  openSentencePanel(sentence, "Loading...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "translate-sentence",
+      token,
+      sentence,
+      context
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Sentence translation failed.");
+    }
+
+    updateSentencePanel(sentence, response.translation);
+  } catch (error) {
+    updateSentencePanel(sentence, error.message);
+  }
+}
+
 function getTokenContext(span) {
   const container = span.closest("p, li, blockquote, h1, h2, h3, h4, h5, h6, div, article, main") || document.body;
   const clone = container.cloneNode(true);
 
-  for (const meaning of clone.querySelectorAll(".contextglide-meaning")) {
-    meaning.remove();
+  for (const node of clone.querySelectorAll(".contextglide-meaning, .contextglide-float, .contextglide-panel")) {
+    node.remove();
   }
 
   const text = clone.textContent.replace(/\s+/g, " ").trim();
@@ -295,6 +377,85 @@ function getTokenContext(span) {
   const start = Math.max(0, index - 480);
   const end = Math.min(text.length, index + token.length + 480);
   return text.slice(start, end);
+}
+
+function getContainingSentence(text, token) {
+  const source = String(text || "").trim();
+  if (!source) {
+    return token;
+  }
+
+  const tokenIndex = source.toLowerCase().indexOf(String(token || "").toLowerCase());
+  const pivot = tokenIndex >= 0 ? tokenIndex : Math.floor(source.length / 2);
+  const boundaries = ".?!;:\u3002\uff1f\uff01\uff1b\uff1a";
+  let start = 0;
+  let end = source.length;
+
+  for (let index = pivot - 1; index >= 0; index -= 1) {
+    if (boundaries.includes(source[index])) {
+      start = index + 1;
+      break;
+    }
+  }
+
+  for (let index = pivot; index < source.length; index += 1) {
+    if (boundaries.includes(source[index])) {
+      end = index + 1;
+      break;
+    }
+  }
+
+  return source.slice(start, end).trim() || source;
+}
+
+function openSentencePanel(sentence, result) {
+  ensureSentencePanel();
+  updateSentencePanel(sentence, result);
+  sentencePanel.hidden = false;
+}
+
+function updateSentencePanel(sentence, result) {
+  ensureSentencePanel();
+  sentenceSource.textContent = sentence || "";
+  sentenceResult.textContent = result || "";
+}
+
+function ensureSentencePanel() {
+  if (sentencePanel) {
+    return;
+  }
+
+  sentencePanel = document.createElement("aside");
+  sentencePanel.className = "contextglide-panel";
+  sentencePanel.hidden = true;
+
+  const header = document.createElement("div");
+  header.className = "contextglide-panel-header";
+
+  const title = document.createElement("strong");
+  title.textContent = "Sentence";
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "x";
+  close.setAttribute("aria-label", "Close ContextGlide sentence panel");
+  close.addEventListener("click", closeSentencePanel);
+
+  sentenceSource = document.createElement("p");
+  sentenceSource.className = "contextglide-panel-source";
+
+  sentenceResult = document.createElement("p");
+  sentenceResult.className = "contextglide-panel-result";
+
+  header.append(title, close);
+  sentencePanel.append(header, sentenceSource, sentenceResult);
+  document.documentElement.append(sentencePanel);
+}
+
+function closeSentencePanel() {
+  if (sentencePanel) {
+    sentencePanel.hidden = true;
+  }
 }
 
 function normalizeToken(token) {

@@ -10,17 +10,10 @@ main {
   padding: 14px;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
 button {
   width: 100%;
   min-height: 34px;
+  margin-top: 8px;
   color: white;
   background: #2563eb;
   border: 0;
@@ -31,6 +24,15 @@ button {
 
 button:hover {
   background: #1d4ed8;
+}
+
+#modeButton {
+  margin-top: 0;
+  background: #0f766e;
+}
+
+#modeButton:hover {
+  background: #0f5f59;
 }
 
 #status {
