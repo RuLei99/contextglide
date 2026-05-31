@@ -1,0 +1,44 @@
+.contextglide-token {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 1.2em;
+  min-height: 2.7em;
+  margin: 0 0.04em;
+  vertical-align: top;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.contextglide-token:hover,
+.contextglide-token:focus-visible {
+  background: rgba(255, 222, 89, 0.22);
+  outline: 1px solid rgba(225, 170, 20, 0.45);
+}
+
+.contextglide-original {
+  display: block;
+  white-space: nowrap;
+}
+
+.contextglide-meaning {
+  display: block;
+  min-height: 1.1em;
+  max-width: 7.5em;
+  color: #0f766e;
+  font-size: 0.68em;
+  line-height: 1.1;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.contextglide-error .contextglide-meaning {
+  color: #b91c1c;
+}
+
+.contextglide-disabled .contextglide-meaning {
+  display: none;
+}

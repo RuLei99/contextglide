@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ContextGlide Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <p class="eyebrow" data-i18n="productType">Browser reading assistant</p>
+        <h1>ContextGlide</h1>
+        <p class="slogan" data-i18n="slogan">Make AI-assisted reading simple again.</p>
+      </header>
+
+      <form id="form">
+        <section>
+          <h2 data-i18n="readingTitle">Reading</h2>
+          <label>
+            <span data-i18n="displayLanguage">Display Language</span>
+            <select id="displayLanguage" name="displayLanguage">
+              <option value="auto">Auto</option>
+              <option value="en">English</option>
+              <option value="zh-CN">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="nativeLanguage">Native Language</span>
+            <input id="nativeLanguage" name="nativeLanguage" autocomplete="off" list="languageOptions" placeholder="Simplified Chinese">
+          </label>
+          <label>
+            <span data-i18n="sourceLanguage">Source Language</span>
+            <input id="sourceLanguage" name="sourceLanguage" autocomplete="off" list="sourceLanguageOptions" placeholder="auto">
+          </label>
+          <label>
+            <span data-i18n="targetLanguage">Translation Target</span>
+            <input id="targetLanguage" name="targetLanguage" autocomplete="off" list="languageOptions" placeholder="Simplified Chinese">
+          </label>
+        </section>
+
+        <section>
+          <h2 data-i18n="providerTitle">Provider</h2>
+          <label>
+            <span data-i18n="provider">Provider</span>
+            <select id="aiProvider" name="aiProvider">
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
+              <option value="claude">Claude</option>
+              <option value="zhipu">Zhipu AI</option>
+              <option value="qwen">Qwen</option>
+              <option value="customOpenAI">Custom OpenAI-compatible</option>
+              <option value="googleTranslate">Google Translate</option>
+              <option value="microsoftTranslator">Microsoft Translator</option>
+              <option value="youdao">Youdao only</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="customEndpoint">Custom Endpoint</span>
+            <input id="customProviderEndpoint" name="customProviderEndpoint" autocomplete="off" placeholder="https://api.example.com/v1">
+          </label>
+          <label>
+            <span data-i18n="apiKey">Provider API Key</span>
+            <input id="aiApiKey" name="aiApiKey" type="password" autocomplete="off" placeholder="<YOUR_PROVIDER_API_KEY>">
+          </label>
+          <label>
+            <span data-i18n="model">Model</span>
+            <input id="aiModel" name="aiModel" autocomplete="off" list="modelOptions" placeholder="deepseek-v4-flash">
+          </label>
+          <label>
+            <span data-i18n="region">Region</span>
+            <input id="providerRegion" name="providerRegion" autocomplete="off" list="regionOptions" placeholder="eastasia">
+          </label>
+        </section>
+
+        <section>
+          <h2 data-i18n="shortcutTitle">Shortcut</h2>
+          <label>
+            <span data-i18n="toggleShortcut">Toggle Shortcut</span>
+            <input id="contextGlideShortcut" name="contextGlideShortcut" autocomplete="off" readonly placeholder="Press keys to record">
+          </label>
+        </section>
+
+        <section>
+          <h2 data-i18n="fallbackTitle">Fallback</h2>
+          <label>
+            <span data-i18n="youdaoKey">Youdao App Key</span>
+            <input id="appKey" name="appKey" autocomplete="off">
+          </label>
+          <label>
+            <span data-i18n="youdaoSecret">Youdao App Secret</span>
+            <input id="appSecret" name="appSecret" type="password" autocomplete="off">
+          </label>
+        </section>
+
+        <button type="submit" data-i18n="save">Save</button>
+      </form>
+      <p id="status"></p>
+    </main>
+
+    <datalist id="languageOptions"></datalist>
+    <datalist id="sourceLanguageOptions"></datalist>
+    <datalist id="modelOptions"></datalist>
+    <datalist id="regionOptions"></datalist>
+
+    <script src="options.js"></script>
+  </body>
+</html>
