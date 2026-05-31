@@ -17,7 +17,7 @@ init();
 
 async function init() {
   const settings = await chrome.storage.sync.get({
-    [ENABLED_KEY]: true,
+    [ENABLED_KEY]: false,
     [SHORTCUT_KEY]: defaultShortcut()
   });
   enabled = Boolean(settings[ENABLED_KEY]);

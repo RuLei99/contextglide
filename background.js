@@ -85,7 +85,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function toggleContextGlide() {
   const settings = await chrome.storage.sync.get({
-    contextGlideEnabled: true
+    contextGlideEnabled: false
   });
   await chrome.storage.sync.set({
     contextGlideEnabled: !settings.contextGlideEnabled
