@@ -2,6 +2,8 @@ const TOKEN_RE = /[\p{L}\p{N}]+(?:['_-][\p{L}\p{N}]+)*/gu;
 const PROCESSED_ATTR = "data-contextglide-processed";
 const SHORTCUT_KEY = "contextGlideShortcut";
 const MODES = ["off", "word", "sentence"];
+const ANCHOR_START = "\uE000";
+const ANCHOR_END = "\uE001";
 
 let mode = "off";
 let toggleShortcut = defaultShortcut();
@@ -396,8 +398,9 @@ async function translateWordToken(span) {
 
 async function translateContainingSentence(span) {
   const token = span.dataset.contextglideToken;
-  const context = getTokenContext(span);
-  const sentence = getContainingSentence(context, token);
+  const snapshot = getTokenSnapshot(span);
+  const context = snapshot.context;
+  const sentence = getContainingSentence(snapshot);
   activeSentenceState = {
     token,
     context,
@@ -426,37 +429,136 @@ async function translateContainingSentence(span) {
 }
 
 function getTokenContext(span) {
-  const container = span.closest("p, li, blockquote, h1, h2, h3, h4, h5, h6, div, article, main") || document.body;
-  const clone = container.cloneNode(true);
-
-  for (const node of clone.querySelectorAll(".contextglide-meaning, .contextglide-float, .contextglide-panel")) {
-    node.remove();
-  }
-
-  const text = clone.textContent.replace(/\s+/g, " ").trim();
-  if (text.length <= 1000) {
-    return text;
-  }
-
-  const token = span.dataset.contextglideToken || "";
-  const index = text.toLowerCase().indexOf(token.toLowerCase());
-  if (index < 0) {
-    return text.slice(0, 1000);
-  }
-
-  const start = Math.max(0, index - 480);
-  const end = Math.min(text.length, index + token.length + 480);
-  return text.slice(start, end);
+  return getTokenSnapshot(span).context;
 }
 
-function getContainingSentence(text, token) {
-  const source = String(text || "").trim();
-  if (!source) {
-    return token;
+function getTokenSnapshot(span) {
+  const container = findContextContainer(span);
+  const rawText = collectAnchoredText(container, span);
+  const normalized = normalizeAnchoredText(rawText);
+  const token = span.dataset.contextglideToken || "";
+  const anchorStart = normalized.anchorStart;
+  const anchorEnd = normalized.anchorEnd >= normalized.anchorStart ? normalized.anchorEnd : normalized.anchorStart + token.length;
+  const source = normalized.text;
+
+  if (source.length <= 1000) {
+    return {
+      context: source,
+      contextStart: 0,
+      anchorStart,
+      anchorEnd,
+      token
+    };
   }
 
-  const tokenIndex = source.toLowerCase().indexOf(String(token || "").toLowerCase());
-  const pivot = tokenIndex >= 0 ? tokenIndex : Math.floor(source.length / 2);
+  const fallbackAnchor = anchorStart >= 0 ? anchorStart : Math.floor(source.length / 2);
+  const start = Math.max(0, fallbackAnchor - 480);
+  const end = Math.min(source.length, fallbackAnchor + token.length + 480);
+
+  return {
+    context: source.slice(start, end),
+    contextStart: start,
+    anchorStart: Math.max(0, fallbackAnchor - start),
+    anchorEnd: Math.max(0, anchorEnd - start),
+    token
+  };
+}
+
+function findContextContainer(span) {
+  const preferred = span.closest("p, li, blockquote, h1, h2, h3, h4, h5, h6");
+  if (preferred) {
+    return preferred;
+  }
+
+  let candidate = span.parentElement;
+  let best = null;
+  while (candidate && candidate !== document.body) {
+    if (candidate.matches?.(".contextglide-token, .contextglide-original, .contextglide-meaning")) {
+      candidate = candidate.parentElement;
+      continue;
+    }
+
+    if (candidate.matches?.("article, main, section, div, td, th")) {
+      const text = normalizeAnchoredText(collectAnchoredText(candidate, span)).text;
+      if (!best || text.length < 1400) {
+        best = candidate;
+      }
+      if (text.length >= 120 && /[.?!;:\u3002\uff1f\uff01\uff1b\uff1a]/.test(text)) {
+        return candidate;
+      }
+    }
+
+    candidate = candidate.parentElement;
+  }
+
+  return best || document.querySelector("article") || document.querySelector("main") || document.body;
+}
+
+function collectAnchoredText(container, anchorSpan) {
+  const walker = document.createTreeWalker(
+    container,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent) {
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        if (parent.closest(".contextglide-meaning, .contextglide-float, .contextglide-panel")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        if (parent.closest("script, style, noscript, textarea, input, select, option, code, pre, svg, canvas, iframe")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let text = "";
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement?.closest(".contextglide-original")?.parentElement === anchorSpan) {
+      text += `${ANCHOR_START}${node.nodeValue}${ANCHOR_END}`;
+    } else {
+      text += node.nodeValue;
+    }
+  }
+
+  return text;
+}
+
+function normalizeAnchoredText(text) {
+  const withNormalizedSpace = String(text || "")
+    .replace(/[\s\u00A0]+/g, " ")
+    .replace(/\s+([,.;:?!，。？！；：])/g, "$1")
+    .replace(/([([{“‘])\s+/g, "$1")
+    .trim();
+  const anchorStart = withNormalizedSpace.indexOf(ANCHOR_START);
+  const anchorEnd = withNormalizedSpace.indexOf(ANCHOR_END);
+  const source = withNormalizedSpace
+    .replaceAll(ANCHOR_START, "")
+    .replaceAll(ANCHOR_END, "");
+
+  return {
+    text: source,
+    anchorStart,
+    anchorEnd: anchorEnd >= 0 && anchorStart >= 0 ? anchorEnd - ANCHOR_START.length : -1
+  };
+}
+
+function getContainingSentence(snapshot) {
+  const source = String(snapshot?.context || "").trim();
+  if (!source) {
+    return snapshot?.token || "";
+  }
+
+  const pivot = Number.isInteger(snapshot?.anchorStart) && snapshot.anchorStart >= 0
+    ? Math.min(snapshot.anchorStart, source.length - 1)
+    : findBestTokenIndex(source, snapshot?.token);
   const boundaries = ".?!;:\u3002\uff1f\uff01\uff1b\uff1a";
   let start = 0;
   let end = source.length;
@@ -476,6 +578,16 @@ function getContainingSentence(text, token) {
   }
 
   return source.slice(start, end).trim() || source;
+}
+
+function findBestTokenIndex(source, token) {
+  const normalized = String(token || "").trim();
+  if (!normalized) {
+    return Math.floor(source.length / 2);
+  }
+
+  const index = source.toLocaleLowerCase().indexOf(normalized.toLocaleLowerCase());
+  return index >= 0 ? index : Math.floor(source.length / 2);
 }
 
 function openSentencePanel(sentence, result) {

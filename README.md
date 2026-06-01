@@ -26,6 +26,7 @@ Our differentiation is not more buttons. It is less interruption:
 
 - Multilingual token support with `Intl.Segmenter`, plus a Unicode regex fallback.
 - Context-aware lookup: sends the clicked token and nearby paragraph text to the selected provider.
+- Click-position anchoring: repeated words and fragmented page text are matched by the actual clicked token, not by the first matching word in the paragraph.
 - AI providers: DeepSeek, OpenAI, Gemini, Claude, Zhipu AI, Qwen, and any custom OpenAI-compatible provider.
 - Translation providers: Google Translate, Microsoft Translator, and Youdao.
 - Common providers are preconfigured; users only need to choose a provider, choose a model, and paste a token or API key.
@@ -139,7 +140,7 @@ You can also record a page-level shortcut in ContextGlide settings. Click the sh
 
 ## Prompt Design
 
-ContextGlide does not send an isolated word alone. It captures the nearest paragraph-like container, removes already displayed inline translations, normalizes whitespace, and sends up to about 1,000 characters of nearby context.
+ContextGlide does not send an isolated word alone. It captures the nearest paragraph-like container, removes already displayed inline translations, normalizes whitespace, anchors the exact clicked token, and sends up to about 1,000 characters of nearby context.
 
 Sentence mode uses the clicked word as an anchor. ContextGlide extracts the sentence containing that word with English and CJK punctuation boundaries, then asks the provider for a target-language sentence translation.
 
