@@ -36,6 +36,7 @@ Our differentiation is not more buttons. It is less interruption:
 - On-demand requests: blank translation slots appear first; API calls happen only after a click.
 - Sentence follow-up chat: after translating a sentence, ask short questions about grammar, meaning, tone, or usage in the same panel.
 - Follow-up answers support lightweight Markdown display for bold text, inline code, line breaks, and simple lists.
+- Word lookup stays concise, while sentence translations and follow-up answers allow longer responses.
 - Local cache for the same provider, endpoint, model, target language, token, and context for 30 days.
 - Runs on ordinary `http://*/*` and `https://*/*` pages.
 

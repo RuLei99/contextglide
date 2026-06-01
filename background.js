@@ -407,6 +407,7 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
         }
       ],
       temperature: 0.2,
+      max_tokens: outputTokenLimit(task),
       stream: false
     })
   });
@@ -416,7 +417,7 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
   }
 
   const data = await response.json();
-  return cleanTranslation(data?.choices?.[0]?.message?.content, settings);
+  return cleanProviderOutput(data?.choices?.[0]?.message?.content, settings, task);
 }
 
 function normalizeEndpoint(endpoint) {
@@ -442,7 +443,7 @@ async function translateWithClaude(token, context, settings, provider, task = "t
     },
     body: JSON.stringify({
       model: settings.model || provider.defaultModel,
-      max_tokens: 80,
+      max_tokens: outputTokenLimit(task),
       temperature: 0.2,
       system: task === "sentence"
         ? buildSentenceSystemPrompt(settings)
@@ -464,7 +465,7 @@ async function translateWithClaude(token, context, settings, provider, task = "t
 
   const data = await response.json();
   const text = data?.content?.map((part) => part.text || "").join("\n");
-  return cleanTranslation(text, settings);
+  return cleanProviderOutput(text, settings, task);
 }
 
 async function translateWithGemini(token, context, settings, provider, task = "token") {
@@ -490,7 +491,7 @@ async function translateWithGemini(token, context, settings, provider, task = "t
       ],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 80
+        maxOutputTokens: outputTokenLimit(task)
       }
     })
   });
@@ -501,7 +502,7 @@ async function translateWithGemini(token, context, settings, provider, task = "t
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("\n");
-  return cleanTranslation(text, settings);
+  return cleanProviderOutput(text, settings, task);
 }
 
 async function translateWithGoogleTranslate(token, settings, provider) {
@@ -704,7 +705,31 @@ function buildUserPrompt(token, context, settings) {
   ].join("\n");
 }
 
-function cleanTranslation(text, settings) {
+function outputTokenLimit(task) {
+  if (task === "followup") {
+    return 700;
+  }
+  if (task === "sentence") {
+    return 260;
+  }
+  return 80;
+}
+
+function cleanProviderOutput(text, settings, task) {
+  if (task === "followup") {
+    const answer = cleanLongAnswer(text);
+    return answer ? answer.slice(0, 2400) : fallbackText(settings);
+  }
+
+  if (task === "sentence") {
+    const sentence = cleanLongAnswer(text);
+    return sentence ? sentence.slice(0, 800) : fallbackText(settings);
+  }
+
+  return cleanTokenTranslation(text, settings);
+}
+
+function cleanTokenTranslation(text, settings) {
   const firstLine = String(text || "")
     .trim()
     .replace(/^["'`]+|["'`]+$/g, "")
@@ -713,6 +738,12 @@ function cleanTranslation(text, settings) {
     .filter(Boolean)[0];
 
   return firstLine ? firstLine.slice(0, 48) : fallbackText(settings);
+}
+
+function cleanLongAnswer(text) {
+  return String(text || "")
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "");
 }
 
 function normalizeToken(token) {
