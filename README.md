@@ -35,6 +35,7 @@ Our differentiation is not more buttons. It is less interruption:
 - Draggable right-edge control: move the floating button up or down while it stays attached to the page edge.
 - On-demand requests: blank translation slots appear first; API calls happen only after a click.
 - Sentence follow-up chat: after translating a sentence, ask short questions about grammar, meaning, tone, or usage in the same panel.
+- Follow-up answers support lightweight Markdown display for bold text, inline code, line breaks, and simple lists.
 - Local cache for the same provider, endpoint, model, target language, token, and context for 30 days.
 - Runs on ordinary `http://*/*` and `https://*/*` pages.
 

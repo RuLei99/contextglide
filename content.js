@@ -571,9 +571,9 @@ async function askSentenceFollowup(event) {
       throw new Error(response?.error || "Follow-up failed.");
     }
 
-    pending.querySelector(".contextglide-followup-text").textContent = response.answer;
+    renderMarkdown(pending.querySelector(".contextglide-followup-text"), response.answer);
   } catch (error) {
-    pending.querySelector(".contextglide-followup-text").textContent = error.message;
+    renderMarkdown(pending.querySelector(".contextglide-followup-text"), error.message);
   }
 }
 
@@ -581,14 +581,77 @@ function appendFollowup(role, text) {
   const item = document.createElement("div");
   item.className = "contextglide-followup";
   const name = document.createElement("strong");
+  name.className = "contextglide-followup-role";
   name.textContent = role;
-  const body = document.createElement("p");
+  const body = document.createElement("div");
   body.className = "contextglide-followup-text";
-  body.textContent = text;
+  renderMarkdown(body, text);
   item.append(name, body);
   sentenceFollowupThread.append(item);
   sentenceFollowupThread.scrollTop = sentenceFollowupThread.scrollHeight;
   return item;
+}
+
+function renderMarkdown(target, rawText) {
+  const text = String(rawText || "");
+  const fragment = document.createDocumentFragment();
+  const lines = text.split(/\r?\n/);
+  let list = null;
+
+  for (const line of lines) {
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (bullet || ordered) {
+      if (!list || list.tagName !== (bullet ? "UL" : "OL")) {
+        list = document.createElement(bullet ? "ul" : "ol");
+        fragment.append(list);
+      }
+      const item = document.createElement("li");
+      appendInlineMarkdown(item, bullet?.[1] || ordered?.[1] || "");
+      list.append(item);
+      continue;
+    }
+
+    list = null;
+    appendInlineMarkdown(fragment, line);
+    fragment.append(document.createElement("br"));
+  }
+
+  const last = fragment.lastChild;
+  if (last?.nodeName === "BR") {
+    fragment.removeChild(last);
+  }
+  target.replaceChildren(fragment);
+}
+
+function appendInlineMarkdown(parent, text) {
+  const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g;
+  let cursor = 0;
+  let match = pattern.exec(text);
+
+  while (match) {
+    if (match.index > cursor) {
+      parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    }
+
+    const token = match[0];
+    if (token.startsWith("`")) {
+      const code = document.createElement("code");
+      code.textContent = token.slice(1, -1);
+      parent.append(code);
+    } else {
+      const strong = document.createElement("strong");
+      strong.textContent = token.slice(2, -2);
+      parent.append(strong);
+    }
+
+    cursor = match.index + token.length;
+    match = pattern.exec(text);
+  }
+
+  if (cursor < text.length) {
+    parent.append(document.createTextNode(text.slice(cursor)));
+  }
 }
 
 function positionPanelNearFloat() {
