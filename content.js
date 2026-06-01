@@ -10,6 +10,11 @@ let floatingButton = null;
 let sentencePanel = null;
 let sentenceSource = null;
 let sentenceResult = null;
+let sentenceFollowupForm = null;
+let sentenceFollowupInput = null;
+let sentenceFollowupThread = null;
+let activeSentenceState = null;
+let dragState = null;
 
 try {
   segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
@@ -66,6 +71,7 @@ function createFloatingControl() {
   floatingButton.title = "ContextGlide: Off";
   floatingButton.setAttribute("aria-label", "Toggle ContextGlide mode");
   floatingButton.addEventListener("click", () => setMode(nextMode(mode)));
+  floatingButton.addEventListener("pointerdown", startFloatDrag);
   document.documentElement.append(floatingButton);
 }
 
@@ -105,6 +111,63 @@ function updateFloatingControl() {
   floatingButton.className = `contextglide-float contextglide-float-${mode}`;
   floatingButton.textContent = mode === "off" ? "CG" : mode === "word" ? "W" : "S";
   floatingButton.title = `ContextGlide: ${mode}`;
+  positionPanelNearFloat();
+}
+
+function startFloatDrag(event) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  dragState = {
+    startY: event.clientY,
+    startTop: floatingButton.getBoundingClientRect().top,
+    moved: false
+  };
+  floatingButton.setPointerCapture(event.pointerId);
+  floatingButton.addEventListener("pointermove", moveFloatDrag);
+  floatingButton.addEventListener("pointerup", endFloatDrag, { once: true });
+  floatingButton.addEventListener("pointercancel", endFloatDrag, { once: true });
+}
+
+function moveFloatDrag(event) {
+  if (!dragState) {
+    return;
+  }
+
+  const delta = event.clientY - dragState.startY;
+  if (Math.abs(delta) > 4) {
+    dragState.moved = true;
+  }
+
+  const nextTop = clamp(dragState.startTop + delta, 12, window.innerHeight - floatingButton.offsetHeight - 12);
+  floatingButton.style.top = `${nextTop}px`;
+  floatingButton.style.right = "12px";
+  positionPanelNearFloat();
+}
+
+function endFloatDrag(event) {
+  if (!dragState) {
+    return;
+  }
+
+  floatingButton.releasePointerCapture?.(event.pointerId);
+  floatingButton.removeEventListener("pointermove", moveFloatDrag);
+  if (dragState.moved) {
+    event.preventDefault();
+    event.stopPropagation();
+    suppressNextFloatClick();
+  }
+  dragState = null;
+}
+
+function suppressNextFloatClick() {
+  const stopClick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    floatingButton.removeEventListener("click", stopClick, true);
+  };
+  floatingButton.addEventListener("click", stopClick, true);
 }
 
 async function handleShortcut(event) {
@@ -335,6 +398,12 @@ async function translateContainingSentence(span) {
   const token = span.dataset.contextglideToken;
   const context = getTokenContext(span);
   const sentence = getContainingSentence(context, token);
+  activeSentenceState = {
+    token,
+    context,
+    sentence,
+    translation: ""
+  };
   openSentencePanel(sentence, "Loading...");
 
   try {
@@ -349,6 +418,7 @@ async function translateContainingSentence(span) {
       throw new Error(response?.error || "Sentence translation failed.");
     }
 
+    activeSentenceState.translation = response.translation;
     updateSentencePanel(sentence, response.translation);
   } catch (error) {
     updateSentencePanel(sentence, error.message);
@@ -412,10 +482,14 @@ function openSentencePanel(sentence, result) {
   ensureSentencePanel();
   updateSentencePanel(sentence, result);
   sentencePanel.hidden = false;
+  positionPanelNearFloat();
 }
 
 function updateSentencePanel(sentence, result) {
   ensureSentencePanel();
+  if (sentenceFollowupThread && sentenceSource.textContent !== (sentence || "")) {
+    sentenceFollowupThread.replaceChildren();
+  }
   sentenceSource.textContent = sentence || "";
   sentenceResult.textContent = result || "";
 }
@@ -447,8 +521,22 @@ function ensureSentencePanel() {
   sentenceResult = document.createElement("p");
   sentenceResult.className = "contextglide-panel-result";
 
+  sentenceFollowupThread = document.createElement("div");
+  sentenceFollowupThread.className = "contextglide-followups";
+
+  sentenceFollowupForm = document.createElement("form");
+  sentenceFollowupForm.className = "contextglide-followup-form";
+  sentenceFollowupInput = document.createElement("input");
+  sentenceFollowupInput.type = "text";
+  sentenceFollowupInput.placeholder = "Ask about this sentence...";
+  const askButton = document.createElement("button");
+  askButton.type = "submit";
+  askButton.textContent = "Ask";
+  sentenceFollowupForm.append(sentenceFollowupInput, askButton);
+  sentenceFollowupForm.addEventListener("submit", askSentenceFollowup);
+
   header.append(title, close);
-  sentencePanel.append(header, sentenceSource, sentenceResult);
+  sentencePanel.append(header, sentenceSource, sentenceResult, sentenceFollowupThread, sentenceFollowupForm);
   document.documentElement.append(sentencePanel);
 }
 
@@ -456,6 +544,67 @@ function closeSentencePanel() {
   if (sentencePanel) {
     sentencePanel.hidden = true;
   }
+}
+
+async function askSentenceFollowup(event) {
+  event.preventDefault();
+  const question = sentenceFollowupInput.value.trim();
+  if (!question || !activeSentenceState) {
+    return;
+  }
+
+  appendFollowup("You", question);
+  sentenceFollowupInput.value = "";
+  const pending = appendFollowup("ContextGlide", "Thinking...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "ask-sentence-followup",
+      question,
+      sentence: activeSentenceState.sentence,
+      translation: activeSentenceState.translation,
+      context: activeSentenceState.context,
+      token: activeSentenceState.token
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Follow-up failed.");
+    }
+
+    pending.querySelector(".contextglide-followup-text").textContent = response.answer;
+  } catch (error) {
+    pending.querySelector(".contextglide-followup-text").textContent = error.message;
+  }
+}
+
+function appendFollowup(role, text) {
+  const item = document.createElement("div");
+  item.className = "contextglide-followup";
+  const name = document.createElement("strong");
+  name.textContent = role;
+  const body = document.createElement("p");
+  body.className = "contextglide-followup-text";
+  body.textContent = text;
+  item.append(name, body);
+  sentenceFollowupThread.append(item);
+  sentenceFollowupThread.scrollTop = sentenceFollowupThread.scrollHeight;
+  return item;
+}
+
+function positionPanelNearFloat() {
+  if (!sentencePanel || sentencePanel.hidden || !floatingButton) {
+    return;
+  }
+
+  const rect = floatingButton.getBoundingClientRect();
+  const panelHeight = Math.min(sentencePanel.offsetHeight || 420, Math.max(160, window.innerHeight - 40));
+  const top = clamp(rect.bottom + 10, 12, Math.max(12, window.innerHeight - panelHeight - 12));
+  sentencePanel.style.top = `${top}px`;
+  sentencePanel.style.right = "12px";
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function normalizeToken(token) {

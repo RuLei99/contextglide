@@ -32,7 +32,9 @@ Our differentiation is not more buttons. It is less interruption:
 - Custom providers expose an endpoint field for less common OpenAI-compatible APIs.
 - Native language and target language use selectable suggestions, while still allowing custom text.
 - Quiet default behavior: ContextGlide only shows a tiny right-side floating button until the user turns on Word or Sentence mode.
+- Draggable right-edge control: move the floating button up or down while it stays attached to the page edge.
 - On-demand requests: blank translation slots appear first; API calls happen only after a click.
+- Sentence follow-up chat: after translating a sentence, ask short questions about grammar, meaning, tone, or usage in the same panel.
 - Local cache for the same provider, endpoint, model, target language, token, and context for 30 days.
 - Runs on ordinary `http://*/*` and `https://*/*` pages.
 
@@ -110,9 +112,13 @@ In Word mode, words or short phrases receive a blank line underneath. Click any 
 
 In Sentence mode, you still click a word. ContextGlide finds the nearest sentence containing that word, sends the sentence plus paragraph context to the provider, and shows the translated sentence in the right-side panel.
 
+After a sentence translation appears, you can ask follow-up questions in the same panel. For example, ask why a phrase is translated that way, what a grammar structure means, or how the sentence sounds in context. Follow-up questions require an AI provider such as DeepSeek, OpenAI, Gemini, Claude, Zhipu AI, Qwen, or a custom OpenAI-compatible provider.
+
 ## Toggle and Shortcut
 
 ContextGlide is designed to stay out of your way. It starts in Off mode on every page. The only default UI is a small floating button. Turn on Word mode or Sentence mode from that button, from the popup, or with the browser shortcut. When returning to Off, ContextGlide restores the page text and closes the sentence panel.
+
+The floating button can be dragged vertically. It remains attached to the right edge so it does not cover the reading area more than necessary.
 
 Default shortcut:
 

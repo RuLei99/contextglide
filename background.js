@@ -96,6 +96,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "ask-sentence-followup") {
+    askSentenceFollowup(message)
+      .then((answer) => sendResponse({ ok: true, answer }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "translate-word") {
     translateToken(message.word, message.context)
       .then((translation) => sendResponse({ ok: true, translation }))
@@ -240,6 +247,20 @@ async function translateSentence(rawSentence, rawContext, rawToken) {
   return translation;
 }
 
+async function askSentenceFollowup(message) {
+  const question = normalizeContext(message.question);
+  const sentence = normalizeContext(message.sentence);
+  const translation = normalizeContext(message.translation);
+  const context = normalizeContext(message.context);
+  const token = normalizeToken(message.token);
+  if (!question || !sentence) {
+    throw new Error("Missing follow-up question or sentence.");
+  }
+
+  const settings = await getSettings();
+  return askFollowupWithProvider({ question, sentence, translation, context, token }, settings);
+}
+
 async function getSettings() {
   const settings = await chrome.storage.sync.get({
     aiProvider: "deepseek",
@@ -335,6 +356,29 @@ async function translateSentenceWithProvider(sentence, context, token, settings)
   return translateWithOpenAICompatible(sentence, buildSentenceContext(sentence, context, token), settings, provider, "sentence");
 }
 
+async function askFollowupWithProvider(payload, settings) {
+  const provider = settings.providerDef;
+  const prompt = buildFollowupContext(payload, settings);
+
+  if (provider.type === "google-translate" || provider.type === "microsoft-translator" || provider.type === "youdao") {
+    throw new Error("Follow-up questions require an AI provider.");
+  }
+
+  if (!settings.apiKey) {
+    throw new Error("Please set a provider API key in extension options.");
+  }
+
+  if (provider.type === "anthropic") {
+    return translateWithClaude(payload.question, prompt, settings, provider, "followup");
+  }
+
+  if (provider.type === "gemini") {
+    return translateWithGemini(payload.question, prompt, settings, provider, "followup");
+  }
+
+  return translateWithOpenAICompatible(payload.question, prompt, settings, provider, "followup");
+}
+
 async function translateWithOpenAICompatible(token, context, settings, provider, task = "token") {
   if (!provider.endpoint) {
     throw new Error("Please set a custom OpenAI-compatible endpoint in extension options.");
@@ -351,11 +395,15 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
       messages: [
         {
           role: "system",
-          content: task === "sentence" ? buildSentenceSystemPrompt(settings) : buildSystemPrompt(settings)
+          content: task === "sentence"
+            ? buildSentenceSystemPrompt(settings)
+            : task === "followup"
+              ? buildFollowupSystemPrompt(settings)
+              : buildSystemPrompt(settings)
         },
         {
           role: "user",
-          content: task === "sentence" ? context : buildUserPrompt(token, context, settings)
+          content: task === "sentence" || task === "followup" ? context : buildUserPrompt(token, context, settings)
         }
       ],
       temperature: 0.2,
@@ -396,11 +444,15 @@ async function translateWithClaude(token, context, settings, provider, task = "t
       model: settings.model || provider.defaultModel,
       max_tokens: 80,
       temperature: 0.2,
-      system: task === "sentence" ? buildSentenceSystemPrompt(settings) : buildSystemPrompt(settings),
+      system: task === "sentence"
+        ? buildSentenceSystemPrompt(settings)
+        : task === "followup"
+          ? buildFollowupSystemPrompt(settings)
+          : buildSystemPrompt(settings),
       messages: [
         {
           role: "user",
-          content: task === "sentence" ? context : buildUserPrompt(token, context, settings)
+          content: task === "sentence" || task === "followup" ? context : buildUserPrompt(token, context, settings)
         }
       ]
     })
@@ -430,7 +482,9 @@ async function translateWithGemini(token, context, settings, provider, task = "t
           parts: [{
             text: task === "sentence"
               ? `${buildSentenceSystemPrompt(settings)}\n\n${context}`
-              : `${buildSystemPrompt(settings)}\n\n${buildUserPrompt(token, context, settings)}`
+              : task === "followup"
+                ? `${buildFollowupSystemPrompt(settings)}\n\n${context}`
+                : `${buildSystemPrompt(settings)}\n\n${buildUserPrompt(token, context, settings)}`
           }]
         }
       ],
@@ -594,6 +648,16 @@ function buildSentenceSystemPrompt(settings) {
   ].join(" ");
 }
 
+function buildFollowupSystemPrompt(settings) {
+  return [
+    "You are a multilingual reading tutor.",
+    `Answer the user's follow-up question in ${settings.targetLanguage}.`,
+    "Use the selected sentence, translation, clicked word, and paragraph context.",
+    "Be concise and directly helpful.",
+    "Do not invent unrelated context."
+  ].join(" ");
+}
+
 function buildSentenceContext(sentence, context, token) {
   return [
     `Source language: auto`,
@@ -605,6 +669,25 @@ function buildSentenceContext(sentence, context, token) {
     "",
     "Surrounding paragraph:",
     context || "(No surrounding context was captured.)"
+  ].join("\n");
+}
+
+function buildFollowupContext(payload, settings) {
+  return [
+    `Target language: ${settings.targetLanguage}`,
+    `Clicked word: ${payload.token || ""}`,
+    "",
+    "Selected sentence:",
+    payload.sentence,
+    "",
+    "Current translation:",
+    payload.translation || "(No translation is available yet.)",
+    "",
+    "Surrounding paragraph:",
+    payload.context || "(No surrounding context was captured.)",
+    "",
+    "User follow-up question:",
+    payload.question
   ].join("\n");
 }
 

@@ -12,6 +12,8 @@
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
   font: 700 13px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
 }
 
 .contextglide-float:hover,
@@ -137,4 +139,54 @@ html[data-contextglide-mode="sentence"] .contextglide-meaning {
   margin: 0;
   color: #0f172a;
   font-size: 14px;
+}
+
+.contextglide-followups {
+  display: grid;
+  gap: 8px;
+  max-height: 170px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.contextglide-followup {
+  padding: 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.contextglide-followup strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.contextglide-followup p {
+  margin: 0;
+}
+
+.contextglide-followup-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.contextglide-followup-form input {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.contextglide-followup-form button {
+  padding: 8px 10px;
+  color: white;
+  background: #2563eb;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
 }
