@@ -1,5 +1,5 @@
 const YOUDAO_ENDPOINT = "https://openapi.youdao.com/api";
-const CACHE_PREFIX = "contextglide:v2:";
+const CACHE_PREFIX = "contextglide:v3:";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const PROVIDERS = {
@@ -631,10 +631,12 @@ async function translateWithYoudao(token, settings, task = "token") {
 function buildSystemPrompt(settings) {
   return [
     "You are a multilingual contextual reading assistant.",
+    "The target text is guaranteed to be present in the supplied context.",
     "Infer the meaning of the target word or short phrase from the provided sentence or paragraph context.",
     `Return only the best translation or meaning in ${settings.targetLanguage}.`,
     "Do not explain, do not include pronunciation, and do not include examples.",
     "Prefer a concise answer suitable for displaying beneath the original text.",
+    "Never return 'Not found', 'N/A', or an empty answer.",
     "If the target is a proper noun, return its common localized name when available; otherwise return 'proper noun' in the target language."
   ].join(" ");
 }
@@ -642,9 +644,11 @@ function buildSystemPrompt(settings) {
 function buildSentenceSystemPrompt(settings) {
   return [
     "You are a multilingual contextual sentence translator.",
+    "The selected sentence is guaranteed to be present.",
     `Translate the selected sentence into ${settings.targetLanguage}.`,
     "Use the surrounding paragraph only to resolve context.",
     "Return only the translated sentence.",
+    "Never return 'Not found', 'N/A', or an empty answer.",
     "Do not explain, do not include pronunciation, and do not add examples."
   ].join(" ");
 }
@@ -655,6 +659,7 @@ function buildFollowupSystemPrompt(settings) {
     `Answer the user's follow-up question in ${settings.targetLanguage}.`,
     "Use the selected sentence, translation, clicked word, and paragraph context.",
     "Be concise and directly helpful.",
+    "Never return 'Not found', 'N/A', or an empty answer.",
     "Do not invent unrelated context."
   ].join(" ");
 }
@@ -742,23 +747,47 @@ function cleanTokenTranslation(text, settings, task = "token") {
 
 function requireProviderText(text, settings, task) {
   const value = String(text || "").trim();
-  if (value) {
+  if (value && !isInvalidProviderOutput(value)) {
     return value;
   }
 
   if (task === "sentence") {
-    throw new Error("No sentence translation was returned. Please try again or check the selected provider.");
+    throw new Error("The provider did not return a usable sentence translation. Please try again or check the selected provider.");
   }
 
   if (task === "followup") {
-    throw new Error("No answer was returned. Please try again or check the selected provider.");
+    throw new Error("The provider did not return a usable answer. Please try again or check the selected provider.");
   }
 
-  throw new Error("No word meaning was returned. Please try again or check the selected provider.");
+  throw new Error("The provider did not return a usable word meaning. Please try again or check the selected provider.");
 }
 
-function isFallbackResult(text, settings) {
-  return String(text || "").trim() === fallbackText(settings);
+function isFallbackResult(text, _settings) {
+  return isInvalidProviderOutput(text);
+}
+
+function isInvalidProviderOutput(text) {
+  const normalized = String(text || "")
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/[.!\u3002\uff01]+$/g, "")
+    .toLowerCase();
+
+  return [
+    "",
+    "not found",
+    "no found",
+    "notfound",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "undefined",
+    "\u6ca1\u6709\u627e\u5230",
+    "\u672a\u627e\u5230",
+    "\u627e\u4e0d\u5230",
+    "\u65e0"
+  ].includes(normalized);
 }
 
 function cleanLongAnswer(text) {
@@ -803,20 +832,6 @@ function decodeHtmlEntities(text) {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
-}
-
-function fallbackText(settings) {
-  const language = String(settings?.targetLanguage || "").toLowerCase();
-  if (language.includes("japanese") || language.includes("ja")) {
-    return "Not found";
-  }
-  if (language.includes("korean") || language.includes("ko")) {
-    return "Not found";
-  }
-  if (language.includes("chinese") || language.includes("zh")) {
-    return "Not found";
-  }
-  return "Not found";
 }
 
 function languageCode(language, fallback) {
