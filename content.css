@@ -129,6 +129,37 @@ html[data-contextglide-mode="sentence"] .contextglide-meaning {
   cursor: pointer;
 }
 
+.contextglide-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.contextglide-quick-actions button {
+  padding: 5px 9px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  font: 12px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.contextglide-quick-actions button:hover,
+.contextglide-quick-actions button:focus-visible {
+  background: #dbeafe;
+  outline: 2px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 1px;
+}
+
+.contextglide-quick-actions button:disabled {
+  color: #94a3b8;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
 .contextglide-panel-source {
   margin: 0 0 10px;
   color: #475569;

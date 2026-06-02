@@ -12,6 +12,7 @@ let floatingButton = null;
 let sentencePanel = null;
 let sentenceSource = null;
 let sentenceResult = null;
+let sentenceQuickActions = null;
 let sentenceFollowupForm = null;
 let sentenceFollowupInput = null;
 let sentenceFollowupThread = null;
@@ -604,6 +605,7 @@ function updateSentencePanel(sentence, result) {
   }
   sentenceSource.textContent = sentence || "";
   sentenceResult.textContent = result || "";
+  updateSentenceQuickActions();
 }
 
 function ensureSentencePanel() {
@@ -633,6 +635,29 @@ function ensureSentencePanel() {
   sentenceResult = document.createElement("p");
   sentenceResult.className = "contextglide-panel-result";
 
+  sentenceQuickActions = document.createElement("div");
+  sentenceQuickActions.className = "contextglide-quick-actions";
+
+  const wordMeaningButton = document.createElement("button");
+  wordMeaningButton.type = "button";
+  wordMeaningButton.textContent = "单词释义";
+  wordMeaningButton.dataset.action = "word-meaning";
+  wordMeaningButton.addEventListener("click", askSentenceQuickAction);
+
+  const sentenceVerbButton = document.createElement("button");
+  sentenceVerbButton.type = "button";
+  sentenceVerbButton.textContent = "找句子动词";
+  sentenceVerbButton.dataset.action = "sentence-verbs";
+  sentenceVerbButton.addEventListener("click", askSentenceQuickAction);
+
+  const clauseAnalysisButton = document.createElement("button");
+  clauseAnalysisButton.type = "button";
+  clauseAnalysisButton.textContent = "从句分析";
+  clauseAnalysisButton.dataset.action = "clause-analysis";
+  clauseAnalysisButton.addEventListener("click", askSentenceQuickAction);
+
+  sentenceQuickActions.append(wordMeaningButton, sentenceVerbButton, clauseAnalysisButton);
+
   sentenceFollowupThread = document.createElement("div");
   sentenceFollowupThread.className = "contextglide-followups";
 
@@ -648,8 +673,9 @@ function ensureSentencePanel() {
   sentenceFollowupForm.addEventListener("submit", askSentenceFollowup);
 
   header.append(title, close);
-  sentencePanel.append(header, sentenceSource, sentenceResult, sentenceFollowupThread, sentenceFollowupForm);
+  sentencePanel.append(header, sentenceSource, sentenceResult, sentenceFollowupThread, sentenceQuickActions, sentenceFollowupForm);
   document.documentElement.append(sentencePanel);
+  updateSentenceQuickActions();
 }
 
 function closeSentencePanel() {
@@ -665,8 +691,56 @@ async function askSentenceFollowup(event) {
     return;
   }
 
-  appendFollowup("You", question);
   sentenceFollowupInput.value = "";
+  await submitSentenceFollowup(question);
+}
+
+async function askSentenceQuickAction(event) {
+  const action = event.currentTarget?.dataset?.action;
+  if (!activeSentenceState) {
+    return;
+  }
+
+  const token = String(activeSentenceState.token || "").trim();
+  const quickAction = buildSentenceQuickAction(action, token);
+  if (!quickAction) {
+    return;
+  }
+
+  await submitSentenceFollowup(quickAction.question, quickAction.label);
+}
+
+function buildSentenceQuickAction(action, token) {
+  if (action === "word-meaning" && token) {
+    return {
+      label: `单词释义：${token}`,
+      question: `请解释我点击的单词「${token}」在这个句子里的含义。`
+    };
+  }
+
+  if (action === "sentence-verbs") {
+    return {
+      label: "找句子动词",
+      question: "请找出这个句子的主要动词和重要谓语动词，并用简洁中文说明它们各自对应的主语、宾语或补语。"
+    };
+  }
+
+  if (action === "clause-analysis") {
+    return {
+      label: "从句分析",
+      question: "请分析这个句子里是否有从句。若有，请指出从句类型、引导词、从句范围，以及它在主句中的作用；若没有，请简洁说明。"
+    };
+  }
+
+  return null;
+}
+
+async function submitSentenceFollowup(question, displayQuestion = question) {
+  if (!question || !activeSentenceState) {
+    return;
+  }
+
+  appendFollowup("You", displayQuestion);
   const pending = appendFollowup("ContextGlide", "Thinking...");
 
   try {
@@ -686,6 +760,19 @@ async function askSentenceFollowup(event) {
     renderMarkdown(pending.querySelector(".contextglide-followup-text"), response.answer);
   } catch (error) {
     renderMarkdown(pending.querySelector(".contextglide-followup-text"), error.message);
+  }
+}
+
+function updateSentenceQuickActions() {
+  if (!sentenceQuickActions) {
+    return;
+  }
+
+  for (const button of sentenceQuickActions.querySelectorAll("button")) {
+    const action = button.dataset.action;
+    const needsToken = action === "word-meaning";
+    const hasToken = Boolean(String(activeSentenceState?.token || "").trim());
+    button.disabled = !activeSentenceState || (needsToken && !hasToken);
   }
 }
 
