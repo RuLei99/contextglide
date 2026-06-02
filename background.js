@@ -1,5 +1,5 @@
 const YOUDAO_ENDPOINT = "https://openapi.youdao.com/api";
-const CACHE_PREFIX = "contextglide:";
+const CACHE_PREFIX = "contextglide:v2:";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const PROVIDERS = {
@@ -726,10 +726,10 @@ function cleanProviderOutput(text, settings, task) {
     return requireProviderText(sentence ? sentence.slice(0, 800) : "", settings, task);
   }
 
-  return cleanTokenTranslation(text, settings);
+  return cleanTokenTranslation(text, settings, task);
 }
 
-function cleanTokenTranslation(text, settings) {
+function cleanTokenTranslation(text, settings, task = "token") {
   const firstLine = String(text || "")
     .trim()
     .replace(/^["'`]+|["'`]+$/g, "")
@@ -737,7 +737,7 @@ function cleanTokenTranslation(text, settings) {
     .map((line) => line.trim().replace(/^[-*]\s*/, ""))
     .filter(Boolean)[0];
 
-  return firstLine ? firstLine.slice(0, 48) : fallbackText(settings);
+  return requireProviderText(firstLine ? firstLine.slice(0, 48) : "", settings, task);
 }
 
 function requireProviderText(text, settings, task) {
@@ -754,7 +754,7 @@ function requireProviderText(text, settings, task) {
     throw new Error("No answer was returned. Please try again or check the selected provider.");
   }
 
-  return fallbackText(settings);
+  throw new Error("No word meaning was returned. Please try again or check the selected provider.");
 }
 
 function isFallbackResult(text, settings) {

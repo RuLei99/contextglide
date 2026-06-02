@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ContextGlide",
   "description": "Lightweight contextual AI reading helper for multilingual web pages.",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "permissions": [
     "storage",
     "activeTab",
