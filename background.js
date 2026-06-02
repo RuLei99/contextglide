@@ -196,7 +196,7 @@ async function translateToken(rawToken, rawContext) {
   const cacheKey = `${CACHE_PREFIX}${cacheHash.slice(0, 32)}`;
   const cached = await chrome.storage.local.get(cacheKey);
   const hit = cached[cacheKey];
-  if (hit && Date.now() - hit.savedAt < CACHE_TTL_MS) {
+  if (hit && Date.now() - hit.savedAt < CACHE_TTL_MS && !isFallbackResult(hit.text, settings)) {
     return hit.text;
   }
 
@@ -232,7 +232,7 @@ async function translateSentence(rawSentence, rawContext, rawToken) {
   const cacheKey = `${CACHE_PREFIX}${cacheHash.slice(0, 32)}`;
   const cached = await chrome.storage.local.get(cacheKey);
   const hit = cached[cacheKey];
-  if (hit && Date.now() - hit.savedAt < CACHE_TTL_MS) {
+  if (hit && Date.now() - hit.savedAt < CACHE_TTL_MS && !isFallbackResult(hit.text, settings)) {
     return hit.text;
   }
 
@@ -330,15 +330,15 @@ async function translateSentenceWithProvider(sentence, context, token, settings)
   const provider = settings.providerDef;
 
   if (provider.type === "google-translate") {
-    return translateWithGoogleTranslate(sentence, settings, provider);
+    return translateWithGoogleTranslate(sentence, settings, provider, "sentence");
   }
 
   if (provider.type === "microsoft-translator") {
-    return translateWithMicrosoftTranslator(sentence, settings, provider);
+    return translateWithMicrosoftTranslator(sentence, settings, provider, "sentence");
   }
 
   if (provider.type === "youdao") {
-    return translateWithYoudao(sentence, settings);
+    return translateWithYoudao(sentence, settings, "sentence");
   }
 
   if (!settings.apiKey) {
@@ -505,7 +505,7 @@ async function translateWithGemini(token, context, settings, provider, task = "t
   return cleanProviderOutput(text, settings, task);
 }
 
-async function translateWithGoogleTranslate(token, settings, provider) {
+async function translateWithGoogleTranslate(token, settings, provider, task = "token") {
   if (!settings.apiKey) {
     throw new Error("Please set a Google Cloud Translation API key in extension options.");
   }
@@ -535,10 +535,10 @@ async function translateWithGoogleTranslate(token, settings, provider) {
   }
 
   const data = await response.json();
-  return decodeHtmlEntities(data?.data?.translations?.[0]?.translatedText) || fallbackText(settings);
+  return requireProviderText(decodeHtmlEntities(data?.data?.translations?.[0]?.translatedText), settings, task);
 }
 
-async function translateWithMicrosoftTranslator(token, settings, provider) {
+async function translateWithMicrosoftTranslator(token, settings, provider, task = "token") {
   if (!settings.apiKey) {
     throw new Error("Please set a Microsoft Translator key in extension options.");
   }
@@ -573,10 +573,10 @@ async function translateWithMicrosoftTranslator(token, settings, provider) {
   }
 
   const data = await response.json();
-  return data?.[0]?.translations?.[0]?.text || fallbackText(settings);
+  return requireProviderText(data?.[0]?.translations?.[0]?.text, settings, task);
 }
 
-async function translateWithYoudao(token, settings) {
+async function translateWithYoudao(token, settings, task = "token") {
   if (!settings.youdaoAppKey || !settings.youdaoAppSecret) {
     throw new Error("Please set Youdao App Key and App Secret in extension options.");
   }
@@ -625,7 +625,7 @@ async function translateWithYoudao(token, settings) {
     return translations.slice(0, 2).join("; ");
   }
 
-  return fallbackText(settings);
+  return requireProviderText("", settings, task);
 }
 
 function buildSystemPrompt(settings) {
@@ -718,12 +718,12 @@ function outputTokenLimit(task) {
 function cleanProviderOutput(text, settings, task) {
   if (task === "followup") {
     const answer = cleanLongAnswer(text);
-    return answer ? answer.slice(0, 2400) : fallbackText(settings);
+    return requireProviderText(answer ? answer.slice(0, 2400) : "", settings, task);
   }
 
   if (task === "sentence") {
     const sentence = cleanLongAnswer(text);
-    return sentence ? sentence.slice(0, 800) : fallbackText(settings);
+    return requireProviderText(sentence ? sentence.slice(0, 800) : "", settings, task);
   }
 
   return cleanTokenTranslation(text, settings);
@@ -738,6 +738,27 @@ function cleanTokenTranslation(text, settings) {
     .filter(Boolean)[0];
 
   return firstLine ? firstLine.slice(0, 48) : fallbackText(settings);
+}
+
+function requireProviderText(text, settings, task) {
+  const value = String(text || "").trim();
+  if (value) {
+    return value;
+  }
+
+  if (task === "sentence") {
+    throw new Error("No sentence translation was returned. Please try again or check the selected provider.");
+  }
+
+  if (task === "followup") {
+    throw new Error("No answer was returned. Please try again or check the selected provider.");
+  }
+
+  return fallbackText(settings);
+}
+
+function isFallbackResult(text, settings) {
+  return String(text || "").trim() === fallbackText(settings);
 }
 
 function cleanLongAnswer(text) {
