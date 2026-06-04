@@ -384,7 +384,7 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
     throw new Error("Please set a custom OpenAI-compatible endpoint in extension options.");
   }
 
-  const response = await fetch(provider.endpoint, {
+  const response = await fetchProvider(provider.endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -410,7 +410,7 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
       max_tokens: outputTokenLimit(task),
       stream: false
     })
-  });
+  }, provider);
 
   if (!response.ok) {
     throw new Error(`${provider.label} request failed: HTTP ${response.status}`);
@@ -418,6 +418,25 @@ async function translateWithOpenAICompatible(token, context, settings, provider,
 
   const data = await response.json();
   return cleanProviderOutput(data?.choices?.[0]?.message?.content, settings, task);
+}
+
+async function fetchProvider(url, options, provider) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    const label = provider?.label || "Provider";
+    const endpoint = safeEndpointLabel(url);
+    throw new Error(`${label} network request failed for ${endpoint}. Check your internet connection, VPN/proxy, provider endpoint, and extension host permissions.`);
+  }
+}
+
+function safeEndpointLabel(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin;
+  } catch (_error) {
+    return "the configured endpoint";
+  }
 }
 
 function normalizeEndpoint(endpoint) {
@@ -434,7 +453,7 @@ function normalizeEndpoint(endpoint) {
 }
 
 async function translateWithClaude(token, context, settings, provider, task = "token") {
-  const response = await fetch(provider.endpoint, {
+  const response = await fetchProvider(provider.endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -457,7 +476,7 @@ async function translateWithClaude(token, context, settings, provider, task = "t
         }
       ]
     })
-  });
+  }, provider);
 
   if (!response.ok) {
     throw new Error(`${provider.label} request failed: HTTP ${response.status}`);
@@ -471,7 +490,7 @@ async function translateWithClaude(token, context, settings, provider, task = "t
 async function translateWithGemini(token, context, settings, provider, task = "token") {
   const model = encodeURIComponent(settings.model || provider.defaultModel);
   const endpoint = `${provider.endpoint}/${model}:generateContent?key=${encodeURIComponent(settings.apiKey)}`;
-  const response = await fetch(endpoint, {
+  const response = await fetchProvider(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -494,7 +513,7 @@ async function translateWithGemini(token, context, settings, provider, task = "t
         maxOutputTokens: outputTokenLimit(task)
       }
     })
-  });
+  }, provider);
 
   if (!response.ok) {
     throw new Error(`${provider.label} request failed: HTTP ${response.status}`);
@@ -522,13 +541,13 @@ async function translateWithGoogleTranslate(token, settings, provider, task = "t
   }
 
   const endpoint = `${provider.endpoint}?key=${encodeURIComponent(settings.apiKey)}`;
-  const response = await fetch(endpoint, {
+  const response = await fetchProvider(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify(body)
-  });
+  }, provider);
 
   if (!response.ok) {
     throw new Error(`${provider.label} request failed: HTTP ${response.status}`);
@@ -562,11 +581,11 @@ async function translateWithMicrosoftTranslator(token, settings, provider, task 
     headers["Ocp-Apim-Subscription-Region"] = settings.region;
   }
 
-  const response = await fetch(`${provider.endpoint}?${params.toString()}`, {
+  const response = await fetchProvider(`${provider.endpoint}?${params.toString()}`, {
     method: "POST",
     headers,
     body: JSON.stringify([{ text: token }])
-  });
+  }, provider);
 
   if (!response.ok) {
     throw new Error(`${provider.label} request failed: HTTP ${response.status}`);
@@ -598,13 +617,13 @@ async function translateWithYoudao(token, settings, task = "token") {
     curtime
   });
 
-  const response = await fetch(YOUDAO_ENDPOINT, {
+  const response = await fetchProvider(YOUDAO_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body
-  });
+  }, { label: "Youdao" });
 
   if (!response.ok) {
     throw new Error(`Youdao request failed: HTTP ${response.status}`);
